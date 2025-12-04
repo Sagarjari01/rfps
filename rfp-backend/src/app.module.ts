@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { RfpModule } from './modules/rfp/rfp.module';
 import { VendorModule } from './modules/vendor/vendor.module';
+import { ProposalModule } from './modules/proposal/proposal.module';
 import { AiModule } from './common/ai/ai.module';
 import { EmailModule } from './common/email/email.module';
 
@@ -20,6 +21,7 @@ import { EmailModule } from './common/email/email.module';
     EmailModule,
     RfpModule,
     VendorModule,
+    ProposalModule,
   ],
 })
 export class AppModule {}

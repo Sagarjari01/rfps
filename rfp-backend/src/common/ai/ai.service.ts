@@ -43,5 +43,39 @@ export class AiService {
       return { error: 'Failed to parse', original: userText };
     }
   }
+
+  async parseVendorEmail(emailText: string): Promise<any> {
+    const prompt = `
+      Analyze this email reply from a vendor:
+
+      "${emailText}"
+
+      Extract the following fields into JSON:
+
+      - price: number (just the value, no currency symbols)
+
+      - deliveryDate: string (e.g., "2025-01-20")
+
+      - warranty: string (e.g., "1 year")
+
+      - rating: number (1-10 score based on how professional the tone is)
+      
+      Output ONLY valid JSON. No markdown formatting.
+    `;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      // Clean up if AI adds markdown backticks
+      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanJson);
+    } catch (error) {
+      console.error('AI Error parsing vendor email:', error);
+      // Fallback if AI fails (prevents app crash)
+      return { error: 'Failed to parse', original: emailText };
+    }
+  }
 }
 
