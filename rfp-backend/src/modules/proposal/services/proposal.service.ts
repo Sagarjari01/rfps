@@ -30,6 +30,7 @@ export class ProposalService {
           host: 'imap.gmail.com',
           port: 993,
           tls: true,
+          tlsOptions: { rejectUnauthorized: false },
           authTimeout: 3000,
         },
       };
@@ -37,39 +38,59 @@ export class ProposalService {
       const connection = await imaps.connect(config);
       await connection.openBox('INBOX');
 
-      // 1. Search for UNSEEN emails with "RFP" in the subject
-      const searchCriteria = ['UNSEEN', ['SUBJECT', 'RFP Request']];
+      // Check ALL emails with "RFP" in subject (not just unseen)
+      const searchCriteria = [['SUBJECT', 'RFP Request']];
       const fetchOptions = { bodies: ['HEADER', 'TEXT'], markSeen: true };
       const messages = await connection.search(searchCriteria, fetchOptions);
 
-      console.log(`found ${messages.length} new emails`);
+      console.log(`found ${messages.length} emails matching criteria`);
       const processed: ProposalDocument[] = [];
 
       for (const message of messages) {
-      try {
-        // 2. Parse the email body
-        const all = message.parts.find((part) => part.which === 'TEXT');
-        if (!all || !all.body) {
-          console.log('Skipping message: no TEXT part found');
-          continue;
-        }
+        try {
+          // --- FIX: Get Subject from HEADER, not TEXT ---
+          const headerPart = message.parts.find((part) => part.which === 'HEADER');
 
-        const id = message.attributes.uid;
-        const idHeader = 'Imap-Id: ' + id + '\r\n';
-        const simpleMail = await simpleParser(idHeader + all.body);
+          // imap-simple parses headers for you. We just access them.
+          const subject = headerPart?.body?.subject?.[0] || '';
+          const sender = headerPart?.body?.from?.[0] || 'Unknown';
 
-        const subject = simpleMail.subject || ''; // "RFP Request [ID: 656...] - Opportunity..."
-        // Extract text from email - prefer plain text, fallback to HTML converted to text
-        const body = simpleMail.text || this.htmlToText(simpleMail.html || '') || '';
-        const sender = simpleMail.from?.text || simpleMail.from?.value?.[0]?.address || 'Unknown';
+          console.log(`Checking email: "${subject}"`);
 
-        // 3. Extract RFP ID from Subject (The critical link!)
-        // Matches "ID: " followed by alphanumeric characters
-        const rfpIdMatch = subject.match(/ID: ([a-zA-Z0-9]+)/);
-        const rfpId = rfpIdMatch ? rfpIdMatch[1] : null;
+          // 1. Extract RFP ID immediately from the Subject Header
+          const rfpIdMatch = subject.match(/ID: ([a-zA-Z0-9]+)/);
+          const rfpId = rfpIdMatch ? rfpIdMatch[1] : null;
 
-        if (rfpId && body) {
+          if (!rfpId) {
+            console.log('Skipping: No RFP ID found in Subject line.');
+            continue;
+          }
+
+          // 2. Prevent Duplicates (Don't save if we already have this vendor's reply)
+          const existing = await this.proposalRepository.findOne({
+            rfpId: rfpId,
+            vendorName: sender,
+          });
+
+          if (existing) {
+            console.log(`Skipping: Proposal from ${sender} already exists.`);
+            continue;
+          }
+
+          // 3. Now Get the Body text
+          const textPart = message.parts.find((part) => part.which === 'TEXT');
+          if (!textPart) {
+            console.log('Skipping: Email has no body text.');
+            continue;
+          }
+
+          // Clean up body
+          const fullRawEmail = `Subject: ${subject}\r\n\r\n${textPart.body}`;
+          const parsedMail = await simpleParser(fullRawEmail);
+          const body = parsedMail.text || this.htmlToText(parsedMail.html || '') || textPart.body;
+
           // 4. Use AI to extract Price/Terms
+          console.log(`Parsing email from ${sender} for RFP ${rfpId}...`);
           const extractedData = await this.aiService.parseVendorEmail(body);
 
           // 5. Save to Database
@@ -82,14 +103,10 @@ export class ProposalService {
             warranty: extractedData.warranty || 'None',
           });
           processed.push(saved);
-        } else {
-          console.log(`Skipping message: missing rfpId (${rfpId}) or body`);
+        } catch (error) {
+          console.error('Error processing specific email:', error);
         }
-      } catch (error) {
-        console.error('Error processing email:', error);
-        // Continue processing other emails even if one fails
       }
-    }
 
       connection.end();
       return { status: 'success', processedCount: processed.length, data: processed };

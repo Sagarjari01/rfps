@@ -27,3 +27,4 @@ export class Proposal {
 
 export const ProposalSchema = SchemaFactory.createForClass(Proposal);
 
+
