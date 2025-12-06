@@ -1,0 +1,284 @@
+# AI-Powered RFP Management System
+
+A single-user web application that automates the procurement workflow using Generative AI. This system allows procurement managers to define requirements in natural language, automatically distributes RFPs to vendors via email, parses unstructured email replies using AI, and generates an intelligent comparison dashboard to recommend the best vendor.
+
+---
+
+## 1. Project Setup
+
+### a. Prerequisites
+
+Ensure you have the following installed/configured:
+
+* **Node.js**: v22 or higher
+* **Package Manager**: Yarn (v1.22+)
+* **Database**: MongoDB (cloud)
+* **Email**: A Gmail account with **2-Step Verification** enabled and an **App Password** generated (Required for Nodemailer/IMAP)
+* **AI API Key**: Google AI Studio Key (Gemini API)
+
+### b. Installation Steps
+
+**1. Clone the repository**
+
+```bash
+git clone https://github.com/Sagarjari01/rfps.git
+cd rfps
+```
+
+**2. Setup Backend**
+
+```bash
+cd rfp-backend
+yarn install
+```
+
+**3. Setup Frontend**
+
+```bash
+cd ../rfp-frontend
+yarn install
+```
+
+### c. Configuration (.env)
+
+Create a `.env` file inside the `rfp-backend` folder with the following keys:
+
+```env
+# Database Connection
+MONGO_URI="MONGO_COMPASS_URL"
+
+# Google Gemini API Key
+GEMINI_API_KEY="API_KEY..."
+
+# Email Configuration (Gmail App Password Required)
+EMAIL_USER="your-email@gmail.com"
+EMAIL_PASS="xxxx xxxx xxxx xxxx"
+```
+
+### d. Running Locally
+
+You need to run the backend and frontend in separate terminals.
+
+**Terminal 1: Backend**
+
+```bash
+cd rfp-backend
+yarn start:dev
+
+# Server starts at http://127.0.0.1:5001
+```
+
+**Terminal 2: Frontend**
+
+```bash
+cd rfp-frontend
+yarn dev
+
+# Client starts at http://localhost:5173
+```
+
+### e. Initial Scripts / Seed Data
+
+No manual seed scripts are required.
+
+* **Vendors**: Can be added directly via the UI ("Add Vendor" button) or using the `POST /vendors` endpoint
+* **Database**: MongoDB collections (`rfps`, `vendors`, `proposals`) are created automatically upon the first record insertion
+
+---
+
+## 2. Tech Stack
+
+* **Frontend**: React (Vite), TypeScript, Mantine UI (Component Library), Atomic Design Architecture
+* **Backend**: NestJS (Fastify adapter for performance), Mongoose (MongoDB ODM)
+* **Database**: MongoDB
+* **AI Provider**: Google Gemini API (Model: `gemini-2.5-flash` for high speed and low latency)
+* **Email Solution**:
+  * **Sending**: `nodemailer` (SMTP via Gmail)
+  * **Receiving**: `imap-simple` & `mailparser` (IMAP polling)
+* **Key Libraries**: `@google/generative-ai`, `imap-simple`, `simple-parser`
+
+---
+
+## 3. API Documentation
+
+### Vendors
+
+* **POST** `/vendors`
+  * **Body**: `{ "name": "TechCorp", "email": "sales@techcorp.com", "category": "IT" }`
+  * **Success**: Returns created vendor object
+
+* **GET** `/vendors`
+  * **Success**: Returns array of all vendors
+
+### RFPs (Request for Proposal)
+
+* **POST** `/rfps`
+  * **Description**: Analyzes natural language to create structured RFP
+  * **Body**: `{ "text": "I need 20 laptops..." }`
+  * **Success**:
+    ```json
+    {
+      "_id": "65a...",
+      "userRequest": "I need 20 laptops...",
+      "structuredData": { "items": ["Laptops"], "budget": 20000 }
+    }
+    ```
+
+* **POST** `/rfps/:id/send`
+  * **Description**: Emails the RFP to selected vendors
+  * **Body**: `{ "vendorIds": ["65b...", "65c..."] }`
+  * **Success**: `{ "message": "Emails sent successfully" }`
+
+### Proposals & Comparison
+
+* **POST** `/proposals/sync`
+  * **Description**: Connects to Gmail via IMAP, finds replies matching RFP IDs, parses body with AI, and saves proposals
+  * **Success**: `{ "status": "success", "processedCount": 1, "data": [...] }`
+
+* **GET** `/rfps/:id/comparison`
+  * **Description**: Aggregates all proposals for an RFP and uses AI to determine the winner
+  * **Success**:
+    ```json
+    {
+      "aiRecommendation": {
+        "recommendedVendor": "TechCorp",
+        "score": 95,
+        "reason": "Price is within budget and delivery is before deadline."
+      },
+      "proposals": [...]
+    }
+    ```
+
+---
+
+## 4. Decisions & Assumptions
+
+### a. Key Design Decisions
+
+1. **Architecture**: Implemented **Atomic Design** on the frontend to ensure component reusability and clean structure. The backend follows strictly **SOLID principles** using a `Controller -> Manager (Interface) -> Service -> Repository` flow.
+
+2. **Email Strategy (IMAP Polling vs Webhooks)**: Chose **IMAP Polling** (`imap-simple`) triggered by a "Check Inbox" button.
+   * *Reasoning*: This avoids the complexity of setting up public webhooks (ngrok) for a local development project and allows on-demand syncing which is better for a demo.
+
+3. **AI Model**: Selected **Gemini 2.5 Flash**.
+   * *Reasoning*: It offers the best balance of speed (critical for real-time UI interaction) and reasoning capability for parsing messy emails.
+
+### b. Assumptions
+
+1. **Email Threading**: We assume vendors reply to the email generated by the system. The system relies on the **Subject Line** containing `[ID: xxxxx]` to link the reply back to the correct RFP.
+
+2. **Currency**: All monetary values are processed as USD for simplicity in AI comparison.
+
+3. **Single User**: As per the "Non-Goals", no authentication is implemented; the system assumes a single procurement manager user.
+
+---
+
+## 5. AI Tools Usage
+
+### a. Tools Used
+
+* **Google Gemini (Chat Interface & API)**: Used as the primary coding assistant and logic engine.
+
+### b. How they helped
+
+1. **Boilerplate & Architecture**: Gemini generated the initial NestJS folder structure following SOLID principles and the React Atomic Design file tree.
+
+2. **Complex Regex & Parsing**: Used to debug the IMAP logic, specifically determining how to extract the "Subject" header correctly from a raw email object which was failing initially.
+
+3. **Prompt Engineering**: Helped refine the system prompts used in `ai.service.ts` to ensure the AI returns strict JSON without Markdown formatting, preventing `JSON.parse` errors.
+
+### c. Notable Prompts/Approaches
+
+* *Date Context Injection*: We discovered that the AI often hallucinated "next Friday" as being in a different year. We solved this by injecting `const today = new Date().toDateString()` into the system prompt so the AI calculates relative dates accurately.
+
+* *Strict JSON Mode*: We appended "Output ONLY valid JSON. No markdown." to all prompts to ensure type safety in the backend.
+
+### d. Learnings
+
+* LLMs are excellent at "unstructured to structured" data conversion (e.g., parsing messy email bodies), which eliminates the need for complex, brittle Regex logic for extracting prices and dates.
+
+---
+
+## 6. Project Structure
+
+```
+rfps/
+├── rfp-backend/          # NestJS Backend
+│   ├── src/
+│   │   ├── controller/   # HTTP endpoints
+│   │   ├── services/     # Business logic
+│   │   ├── repository/   # Data access layer
+│   │   ├── database/     # Mongoose schemas
+│   │   └── common/       # Shared modules (AI, Email)
+│   └── .env              # Environment variables
+│
+└── rfp-frontend/         # React Frontend
+    ├── src/
+    │   ├── components/   # Atomic Design components
+    │   │   ├── atoms/    # Basic UI elements
+    │   │   ├── molecules/# Composite components
+    │   │   └── organisms/# Complex sections
+    │   ├── services/     # API client
+    │   └── types/        # TypeScript interfaces
+    └── package.json
+```
+
+---
+
+## 7. Features
+
+### Core Functionality
+
+* 🧠 **Natural Language Processing**: Converts "I need 20 laptops..." into structured JSON
+* 📧 **Automated Emailing**: Sends RFPs to registered vendors via Nodemailer
+* 📥 **AI Email Parsing**: Reads vendor replies via IMAP and extracts Price, Delivery Date, and Warranty using Gemini AI
+* ⚖️ **AI Judge**: Compares multiple proposals against the user's budget/deadline and recommends a winner
+* 🎨 **Modern UI**: Beautiful gradient design with glassmorphism effects and smooth animations
+
+### User Experience
+
+* **Vendor Management**: Add and manage vendors directly from the UI
+* **Real-time Status**: See RFP creation, email sending, and proposal sync status
+* **Comparison Dashboard**: Visual table showing all proposals with AI-powered recommendations
+* **Responsive Design**: Works seamlessly on desktop and mobile devices
+
+---
+
+## 8. Troubleshooting
+
+### Common Issues
+
+**Backend won't start:**
+- Ensure MongoDB url is correct
+- Check `.env` file exists and has all required keys
+- Verify port 5001 is not in use
+
+**Email sync fails:**
+- Verify Gmail App Password is correct (not your regular password)
+- Ensure 2-Step Verification is enabled on Gmail
+- Check that IMAP is enabled in Gmail settings
+
+**AI parsing errors:**
+- Verify `GEMINI_API_KEY` is valid and has quota remaining
+- Check API key permissions in Google AI Studio
+
+**Frontend won't connect:**
+- Ensure backend is running on `http://127.0.0.1:5001`
+- Check browser console for CORS errors
+- Verify API_URL in `src/services/api.ts`
+
+---
+
+## 9. License
+
+This project is created for educational/demonstration purposes.
+
+---
+
+## 10. Acknowledgments
+
+* Built with [NestJS](https://nestjs.com/) and [React](https://react.dev/)
+* UI components from [Mantine](https://mantine.dev/)
+* Icons from [Tabler Icons](https://tabler.io/icons)
+* AI powered by [Google Gemini](https://ai.google.dev/)
+
