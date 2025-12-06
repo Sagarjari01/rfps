@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { 
-  Container, Title, Text, Textarea, Button, Card, Group, Badge, Table, Stack, Alert, Grid, ThemeIcon
+  Container, Title, Text, Textarea, Button, Card, Group, Badge, Table, Stack, Alert, ThemeIcon, TextInput, Collapse
 } from '@mantine/core';
-import { IconCheck, IconMail, IconRobot, IconCpu } from '@tabler/icons-react';
+import { IconCheck, IconMail, IconRobot, IconCpu, IconPlus, IconUser } from '@tabler/icons-react';
+import { useDisclosure } from '@mantine/hooks';
 
 // --- CONFIGURATION ---
 const API_URL = 'http://127.0.0.1:5001';
@@ -11,36 +12,56 @@ function App() {
   // State
   const [rfpText, setRfpText] = useState('');
   const [currentRfp, setCurrentRfp] = useState<any>(null);
-  const [vendors, setVendors] = useState<any[]>([]); // Store vendors here
+  const [vendors, setVendors] = useState<any[]>([]);
   const [proposals, setProposals] = useState<any[]>([]);
   const [verdict, setVerdict] = useState<any>(null);
   
+  // Vendor Form State
+  const [newVendorName, setNewVendorName] = useState('');
+  const [newVendorEmail, setNewVendorEmail] = useState('');
+  const [opened, { toggle }] = useDisclosure(false);
   const [loading, setLoading] = useState(false);
-  const [emailStatus, setEmailStatus] = useState<string>(''); // To show "Sent to 3 vendors"
+  const [emailStatus, setEmailStatus] = useState<string>('');
   const [syncLoading, setSyncLoading] = useState(false);
 
-  // 1. Fetch Vendors on Load (So we know who to email)
-  useEffect(() => {
-    const fetchVendors = async () => {
-      try {
-        const res = await fetch(`${API_URL}/vendors`);
-        const data = await res.json();
-        setVendors(data);
-      } catch (err) {
-        console.error('Failed to load vendors', err);
-      }
-    };
-    fetchVendors();
-  }, []);
+  // 1. Fetch Vendors
+  const fetchVendors = async () => {
+    try {
+      const res = await fetch(`${API_URL}/vendors`);
+      const data = await res.json();
+      setVendors(data);
+    } catch (err) {
+      console.error('Failed to load vendors', err);
+    }
+  };
 
-  // STEP 1: Create RFP & AUTOMATICALLY Send Emails
+  useEffect(() => { fetchVendors(); }, []);
+
+  // 2. Add New Vendor (For the Demo)
+  const addVendor = async () => {
+    if(!newVendorName || !newVendorEmail) return;
+    try {
+      await fetch(`${API_URL}/vendors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newVendorName, email: newVendorEmail, category: 'General' }),
+      });
+      setNewVendorName('');
+      setNewVendorEmail('');
+      fetchVendors();
+      alert('Vendor Added!');
+      toggle();
+    } catch(err) {
+      alert('Failed to add vendor');
+    }
+  };
+
+  // STEP 1: Create RFP & Email
   const createRfpAndSend = async () => {
     if (!rfpText) return;
     setLoading(true);
     setEmailStatus(''); 
-
     try {
-      // A. Create the RFP
       const createRes = await fetch(`${API_URL}/rfps`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -48,57 +69,44 @@ function App() {
       });
       const rfpData = await createRes.json();
       setCurrentRfp(rfpData);
-      
-      // Reset downstream state
       setProposals([]);
       setVerdict(null);
 
-      // B. Automate Email Sending (The missing piece!)
       if (vendors.length > 0) {
         const vendorIds = vendors.map(v => v._id);
-        
         await fetch(`${API_URL}/rfps/${rfpData._id}/send`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ vendorIds }),
         });
-        
         setEmailStatus(`Successfully emailed ${vendors.length} vendor(s).`);
       } else {
-        setEmailStatus('No vendors found in database to email.');
+        setEmailStatus('No vendors found. Please add vendors first!');
       }
-
     } catch (err) {
-      alert('Error connecting to Backend. Is it running on port 5001?');
+      alert('Backend Error');
     }
     setLoading(false);
   };
 
-  // STEP 2 & 3: Sync Emails & Get Comparison
+  // STEP 2 & 3: Sync & Compare
   const syncEmails = async () => {
     setSyncLoading(true);
     try {
-      // 1. Trigger the Email Sync (Read Inbox)
       const res = await fetch(`${API_URL}/proposals/sync`, { method: 'POST' });
       const data = await res.json();
       
-      // 2. Fetch the updated Comparison logic (AI Judge)
       if (currentRfp?._id) {
         const compRes = await fetch(`${API_URL}/rfps/${currentRfp._id}/comparison`);
         const compData = await compRes.json();
         
-        // Update state
         if (compData.proposals) setProposals(compData.proposals);
         if (compData.aiRecommendation) setVerdict(compData.aiRecommendation);
         
-        if (data.processedCount > 0) {
-           alert(`Found ${data.processedCount} new email(s)!`);
-        } else {
-           alert('No new emails found. Did you reply to the email yet?');
-        }
+        if (data.processedCount > 0) alert(`Found ${data.processedCount} new email(s)!`);
+        else alert('No new emails found. Did you reply?');
       }
     } catch (err) {
-      console.error(err);
       alert('Sync failed');
     }
     setSyncLoading(false);
@@ -117,6 +125,28 @@ function App() {
 
       <Stack gap="xl">
         
+        {/* --- SECTION 0: MANAGE VENDORS (New!) --- */}
+        <Card shadow="xs" p="md" radius="md" withBorder>
+          <Group justify="space-between" onClick={toggle} style={{cursor: 'pointer'}}>
+             <Group>
+                <ThemeIcon color="gray" variant="light"><IconUser size={20}/></ThemeIcon>
+                <Title order={4}>Registered Vendors ({vendors.length})</Title>
+             </Group>
+             <Button variant="subtle" size="xs" leftSection={<IconPlus size={14}/>}>Add Vendor</Button>
+          </Group>
+          <Collapse in={opened}>
+            <Group align="flex-end" mt="md">
+              <TextInput label="Name" placeholder="TechCorp" value={newVendorName} onChange={(e)=>setNewVendorName(e.target.value)} />
+              <TextInput label="Email" placeholder="vendor@gmail.com" value={newVendorEmail} onChange={(e)=>setNewVendorEmail(e.target.value)} />
+              <Button onClick={addVendor}>Save</Button>
+            </Group>
+          </Collapse>
+          
+          <Text size="xs" c="dimmed" mt="sm">
+            Current Vendors: {vendors.map(v => v.name).join(', ')}
+          </Text>
+        </Card>
+        
         {/* --- SECTION 1: CREATE RFP --- */}
         <Card shadow="sm" p="xl" radius="md" withBorder>
           <Group mb="md">
@@ -125,10 +155,9 @@ function App() {
           </Group>
           
           <Textarea 
-            placeholder="e.g. I need 20 Dell Laptops and 50 Keyboards. Budget is $40k. Need them by next Friday." 
+            placeholder="I need 20 Dell Laptops and 50 Keyboards. Budget is $40k. Need them by next Friday." 
             label="What do you need to buy?"
             minRows={3}
-            size="md"
             value={rfpText}
             onChange={(e) => setRfpText(e.currentTarget.value)}
           />
@@ -138,22 +167,10 @@ function App() {
           </Button>
 
           {currentRfp && (
-            <Alert color="green" mt="lg" title="RFP Created & Active" icon={<IconCheck size={16}/>}>
-              <Grid>
-                <Grid.Col span={6}>
-                  <Text size="sm" fw={700}>Parsed Items:</Text>
-                  <Text size="sm">{currentRfp.structuredData?.items?.join(', ') || 'None'}</Text>
-                </Grid.Col>
-                <Grid.Col span={6}>
-                  <Text size="sm" fw={700}>Budget:</Text>
-                  <Text size="sm">${currentRfp.structuredData?.budget?.toLocaleString()}</Text>
-                </Grid.Col>
-              </Grid>
-              
-              <Text size="sm" mt="sm" fw={700} c="dimmed">Status Update:</Text>
-              <Text size="sm" c="blue">{emailStatus}</Text>
-
-              <Text size="xs" c="dimmed" mt="xs">RFP ID: {currentRfp._id}</Text>
+            <Alert color="green" mt="lg" title="RFP Active" icon={<IconCheck size={16}/>}>
+               <Text size="sm"><b>Items:</b> {currentRfp.structuredData?.items?.join(', ')}</Text>
+               <Text size="sm"><b>Budget:</b> ${currentRfp.structuredData?.budget?.toLocaleString()}</Text>
+               <Text size="sm" c="blue" mt="xs">{emailStatus}</Text>
             </Alert>
           )}
         </Card>
@@ -161,30 +178,8 @@ function App() {
         {/* --- SECTION 2: VENDOR COMMUNICATION --- */}
         {currentRfp && (
           <Card shadow="sm" p="xl" radius="md" withBorder style={{ opacity: currentRfp ? 1 : 0.5 }}>
-            <Group mb="md">
-              <ThemeIcon color="orange" variant="light"><IconMail size={20}/></ThemeIcon>
-              <Title order={3}>2. Vendor Communication</Title>
-            </Group>
-
-            {emailStatus.includes('Successfully') ? (
-              <Alert color="blue" icon={<IconMail size={16}/>} mb="md">
-                <Text size="sm">
-                  Emails have been sent to <b>{vendors.length} registered vendors</b>. 
-                  Now, please simulate a vendor response by replying to one of those emails from your phone/laptop.
-                </Text>
-              </Alert>
-            ) : (
-              <Text c="dimmed" mb="lg">Waiting for emails to be sent...</Text>
-            )}
-            
-            <Button 
-              variant="outline" 
-              color="orange" 
-              fullWidth 
-              size="md"
-              onClick={syncEmails} 
-              loading={syncLoading}
-            >
+            <Group mb="md"><ThemeIcon color="orange" variant="light"><IconMail size={20}/></ThemeIcon><Title order={3}>2. Vendor Communication</Title></Group>
+            <Button variant="outline" color="orange" fullWidth size="md" onClick={syncEmails} loading={syncLoading}>
               Check Inbox for Vendor Replies
             </Button>
           </Card>
@@ -194,39 +189,17 @@ function App() {
         {verdict && (
           <Card shadow="md" p="xl" radius="md" withBorder style={{ borderColor: '#228be6', borderWidth: 2 }}>
             <Group justify="space-between" mb="md">
-              <Group>
-                 <ThemeIcon color="green" variant="filled" size="lg"><IconCheck size={20}/></ThemeIcon>
-                 <Title order={2}>AI Recommendation</Title>
-              </Group>
-              <Badge size="xl" color={verdict.score > 80 ? 'green' : 'yellow'}>
-                Score: {verdict.score}/100
-              </Badge>
+              <Title order={2}>AI Recommendation</Title>
+              <Badge size="xl" color={verdict.score > 80 ? 'green' : 'yellow'}>Score: {verdict.score}/100</Badge>
             </Group>
-
-            <Text size="xl" fw={700} c="blue" ta="center" my="sm">
-              🏆 Winner: {verdict.recommendedVendor}
-            </Text>
-            
-            <Card withBorder radius="md" p="md" bg="gray.0" mb="xl">
-               <Text style={{ fontStyle: 'italic' }}>
-                 "{verdict.reason}"
-               </Text>
-            </Card>
-
-            <Title order={4} mb="sm">Comparison Table</Title>
+            <Text size="xl" fw={700} c="blue" ta="center" my="sm">🏆 {verdict.recommendedVendor}</Text>
+            <Card withBorder radius="md" p="md" bg="gray.0" mb="xl"><Text style={{ fontStyle: 'italic' }}>"{verdict.reason}"</Text></Card>
             <Table striped highlightOnHover withTableBorder>
-              <thead>
-                <tr>
-                  <th>Vendor</th>
-                  <th>Price Quote</th>
-                  <th>Delivery Date</th>
-                  <th>Warranty</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Vendor</th><th>Price</th><th>Delivery</th><th>Warranty</th></tr></thead>
               <tbody>
                 {proposals.map((p: any) => (
                   <tr key={p._id}>
-                    <td style={{ fontWeight: 500 }}>{p.vendorName.split('<')[0]}</td>
+                    <td>{p.vendorName.split('<')[0]}</td>
                     <td>${p.price?.toLocaleString()}</td>
                     <td>{p.deliveryDate}</td>
                     <td>{p.warranty}</td>
