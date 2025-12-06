@@ -1,217 +1,160 @@
-import { useState, useEffect } from 'react';
-import { 
-  Container, Title, Text, Textarea, Button, Card, Group, Badge, Table, Stack, Alert, ThemeIcon, TextInput, Collapse
-} from '@mantine/core';
-import { IconCheck, IconMail, IconRobot, IconCpu, IconPlus, IconUser } from '@tabler/icons-react';
+import { useEffect, useState } from 'react';
+import { Container, Group, Stack, ThemeIcon, Title } from '@mantine/core';
+import { IconCpu } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 
-// --- CONFIGURATION ---
-const API_URL = 'http://127.0.0.1:5001';
+import { VendorManagementSection } from './components/organisms/VendorManagementSection';
+import { RfpCreationSection } from './components/organisms/RfpCreationSection';
+import { VendorCommunicationSection } from './components/organisms/VendorCommunicationSection';
+import { ComparisonSection } from './components/organisms/ComparisonSection';
+
+import { api } from './services/api';
+import type { Rfp, Vendor, Proposal, AiVerdict } from './types';
 
 function App() {
-  // State
   const [rfpText, setRfpText] = useState('');
-  const [currentRfp, setCurrentRfp] = useState<any>(null);
-  const [vendors, setVendors] = useState<any[]>([]);
-  const [proposals, setProposals] = useState<any[]>([]);
-  const [verdict, setVerdict] = useState<any>(null);
+  const [currentRfp, setCurrentRfp] = useState<Rfp | null>(null);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [verdict, setVerdict] = useState<AiVerdict | null>(null);
   
-  // Vendor Form State
-  const [newVendorName, setNewVendorName] = useState('');
-  const [newVendorEmail, setNewVendorEmail] = useState('');
-  const [opened, { toggle }] = useDisclosure(false);
   const [loading, setLoading] = useState(false);
-  const [emailStatus, setEmailStatus] = useState<string>('');
   const [syncLoading, setSyncLoading] = useState(false);
+  const [emailStatus, setEmailStatus] = useState('');
+  const [vendorFormOpened, { toggle: toggleVendorForm }] = useDisclosure(false);
 
-  // 1. Fetch Vendors
-  const fetchVendors = async () => {
+  const loadVendors = async () => {
     try {
-      const res = await fetch(`${API_URL}/vendors`);
-      const data = await res.json();
+      const data = await api.fetchVendors();
       setVendors(data);
     } catch (err) {
       console.error('Failed to load vendors', err);
     }
   };
 
-  useEffect(() => { fetchVendors(); }, []);
+  useEffect(() => { loadVendors(); }, []);
 
-  // 2. Add New Vendor (For the Demo)
-  const addVendor = async () => {
-    if(!newVendorName || !newVendorEmail) return;
+  const handleAddVendor = async (name: string, email: string) => {
     try {
-      await fetch(`${API_URL}/vendors`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newVendorName, email: newVendorEmail, category: 'General' }),
-      });
-      setNewVendorName('');
-      setNewVendorEmail('');
-      fetchVendors();
+      await api.addVendor({ name, email, category: 'General' });
       alert('Vendor Added!');
-      toggle();
-    } catch(err) {
+      toggleVendorForm();
+      loadVendors();
+    } catch {
       alert('Failed to add vendor');
     }
   };
 
-  // STEP 1: Create RFP & Email
-  const createRfpAndSend = async () => {
+  const handleCreateRfp = async () => {
     if (!rfpText) return;
     setLoading(true);
     setEmailStatus(''); 
+
     try {
-      const createRes = await fetch(`${API_URL}/rfps`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: rfpText }),
-      });
-      const rfpData = await createRes.json();
-      setCurrentRfp(rfpData);
+      const rfp = await api.createRfp(rfpText);
+      setCurrentRfp(rfp);
       setProposals([]);
       setVerdict(null);
 
       if (vendors.length > 0) {
-        const vendorIds = vendors.map(v => v._id);
-        await fetch(`${API_URL}/rfps/${rfpData._id}/send`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ vendorIds }),
-        });
+        await api.sendRfpEmails(rfp._id, vendors.map(v => v._id));
         setEmailStatus(`Successfully emailed ${vendors.length} vendor(s).`);
       } else {
         setEmailStatus('No vendors found. Please add vendors first!');
       }
-    } catch (err) {
+    } catch {
       alert('Backend Error');
     }
     setLoading(false);
   };
 
-  // STEP 2 & 3: Sync & Compare
-  const syncEmails = async () => {
+  const handleSync = async () => {
     setSyncLoading(true);
     try {
-      const res = await fetch(`${API_URL}/proposals/sync`, { method: 'POST' });
-      const data = await res.json();
+      const syncData = await api.syncEmails();
       
       if (currentRfp?._id) {
-        const compRes = await fetch(`${API_URL}/rfps/${currentRfp._id}/comparison`);
-        const compData = await compRes.json();
+        const compData = await api.getComparison(currentRfp._id);
         
         if (compData.proposals) setProposals(compData.proposals);
         if (compData.aiRecommendation) setVerdict(compData.aiRecommendation);
         
-        if (data.processedCount > 0) alert(`Found ${data.processedCount} new email(s)!`);
-        else alert('No new emails found. Did you reply?');
+        if (syncData.processedCount > 0) alert(`Found ${syncData.processedCount} new email(s)!`);
+        else alert('No new emails found.');
       }
-    } catch (err) {
+    } catch {
       alert('Sync failed');
     }
     setSyncLoading(false);
   };
 
   return (
-    <Container size="md" py="xl" style={{ backgroundColor: '#f8f9fa', minHeight: '100vh' }}>
-      
-      {/* HEADER */}
-      <Group justify="center" mb={40}>
-        <ThemeIcon size={40} radius="xl" color="blue">
-          <IconCpu size={24} />
-        </ThemeIcon>
-        <Title order={1} ta="center">AI Procurement Agent</Title>
-      </Group>
+    <div style={{ 
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      minHeight: '100vh',
+      padding: '2rem 0',
+    }}>
+      <Container size="lg" py="xl">
+        <Group justify="center" mb={50} className="fade-in">
+          <ThemeIcon 
+            size={60} 
+            radius="xl" 
+            variant="gradient"
+            gradient={{ from: 'violet', to: 'purple', deg: 45 }}
+            style={{
+              boxShadow: '0 10px 30px rgba(102, 126, 234, 0.4)',
+            }}
+          >
+            <IconCpu size={32} />
+          </ThemeIcon>
+          <Title 
+            order={1} 
+            ta="center" 
+            style={{
+              background: 'linear-gradient(135deg, #ffffff 0%, #f0f0f0 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              fontSize: 'clamp(2rem, 5vw, 3.5rem)',
+              fontWeight: 800,
+              letterSpacing: '-0.02em',
+              textShadow: '0 2px 4px rgba(0,0,0,0.1)',
+            }}
+          >
+            AI Procurement Agent
+          </Title>
+        </Group>
 
-      <Stack gap="xl">
+        <Stack gap="xl">
+
+        <VendorManagementSection 
+          vendors={vendors}
+          formOpened={vendorFormOpened}
+          onToggleForm={toggleVendorForm}
+          onAddVendor={handleAddVendor}
+        />
         
-        {/* --- SECTION 0: MANAGE VENDORS (New!) --- */}
-        <Card shadow="xs" p="md" radius="md" withBorder>
-          <Group justify="space-between" onClick={toggle} style={{cursor: 'pointer'}}>
-             <Group>
-                <ThemeIcon color="gray" variant="light"><IconUser size={20}/></ThemeIcon>
-                <Title order={4}>Registered Vendors ({vendors.length})</Title>
-             </Group>
-             <Button variant="subtle" size="xs" leftSection={<IconPlus size={14}/>}>Add Vendor</Button>
-          </Group>
-          <Collapse in={opened}>
-            <Group align="flex-end" mt="md">
-              <TextInput label="Name" placeholder="TechCorp" value={newVendorName} onChange={(e)=>setNewVendorName(e.target.value)} />
-              <TextInput label="Email" placeholder="vendor@gmail.com" value={newVendorEmail} onChange={(e)=>setNewVendorEmail(e.target.value)} />
-              <Button onClick={addVendor}>Save</Button>
-            </Group>
-          </Collapse>
-          
-          <Text size="xs" c="dimmed" mt="sm">
-            Current Vendors: {vendors.map(v => v.name).join(', ')}
-          </Text>
-        </Card>
-        
-        {/* --- SECTION 1: CREATE RFP --- */}
-        <Card shadow="sm" p="xl" radius="md" withBorder>
-          <Group mb="md">
-            <ThemeIcon color="blue" variant="light"><IconRobot size={20}/></ThemeIcon>
-            <Title order={3}>1. Define Requirement</Title>
-          </Group>
-          
-          <Textarea 
-            placeholder="I need 20 Dell Laptops and 50 Keyboards. Budget is $40k. Need them by next Friday." 
-            label="What do you need to buy?"
-            minRows={3}
-            value={rfpText}
-            onChange={(e) => setRfpText(e.currentTarget.value)}
-          />
-          
-          <Button mt="md" size="md" fullWidth onClick={createRfpAndSend} loading={loading}>
-            Generate RFP & Email Vendors
-          </Button>
+        <RfpCreationSection 
+          rfpText={rfpText}
+          setRfpText={setRfpText}
+          createRfp={handleCreateRfp}
+          loading={loading}
+          currentRfp={currentRfp}
+          emailStatus={emailStatus}
+        />
 
-          {currentRfp && (
-            <Alert color="green" mt="lg" title="RFP Active" icon={<IconCheck size={16}/>}>
-               <Text size="sm"><b>Items:</b> {currentRfp.structuredData?.items?.join(', ')}</Text>
-               <Text size="sm"><b>Budget:</b> ${currentRfp.structuredData?.budget?.toLocaleString()}</Text>
-               <Text size="sm" c="blue" mt="xs">{emailStatus}</Text>
-            </Alert>
-          )}
-        </Card>
-
-        {/* --- SECTION 2: VENDOR COMMUNICATION --- */}
         {currentRfp && (
-          <Card shadow="sm" p="xl" radius="md" withBorder style={{ opacity: currentRfp ? 1 : 0.5 }}>
-            <Group mb="md"><ThemeIcon color="orange" variant="light"><IconMail size={20}/></ThemeIcon><Title order={3}>2. Vendor Communication</Title></Group>
-            <Button variant="outline" color="orange" fullWidth size="md" onClick={syncEmails} loading={syncLoading}>
-              Check Inbox for Vendor Replies
-            </Button>
-          </Card>
+          <VendorCommunicationSection 
+            onSync={handleSync}
+            loading={syncLoading}
+          />
         )}
 
-        {/* --- SECTION 3: AI COMPARISON --- */}
-        {verdict && (
-          <Card shadow="md" p="xl" radius="md" withBorder style={{ borderColor: '#228be6', borderWidth: 2 }}>
-            <Group justify="space-between" mb="md">
-              <Title order={2}>AI Recommendation</Title>
-              <Badge size="xl" color={verdict.score > 80 ? 'green' : 'yellow'}>Score: {verdict.score}/100</Badge>
-            </Group>
-            <Text size="xl" fw={700} c="blue" ta="center" my="sm">🏆 {verdict.recommendedVendor}</Text>
-            <Card withBorder radius="md" p="md" bg="gray.0" mb="xl"><Text style={{ fontStyle: 'italic' }}>"{verdict.reason}"</Text></Card>
-            <Table striped highlightOnHover withTableBorder>
-              <thead><tr><th>Vendor</th><th>Price</th><th>Delivery</th><th>Warranty</th></tr></thead>
-              <tbody>
-                {proposals.map((p: any) => (
-                  <tr key={p._id}>
-                    <td>{p.vendorName.split('<')[0]}</td>
-                    <td>${p.price?.toLocaleString()}</td>
-                    <td>{p.deliveryDate}</td>
-                    <td>{p.warranty}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          </Card>
-        )}
+        {verdict && <ComparisonSection verdict={verdict} proposals={proposals} />}
 
-      </Stack>
-    </Container>
+        </Stack>
+      </Container>
+    </div>
   );
 }
 
