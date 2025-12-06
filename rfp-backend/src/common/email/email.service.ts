@@ -22,8 +22,7 @@ export class EmailService implements IEmailManager {
       from: `"RFP System" <${this.configService.get<string>('EMAIL_USER')}>`,
       to: to,
       subject: subject,
-      text: content, // Plain text body
-      // html: '<p>...</p>' // You can add HTML later if you want
+      text: content,
     });
     console.log(`📧 Email sent to ${to}`);
   }

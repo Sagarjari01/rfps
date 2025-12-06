@@ -7,7 +7,7 @@ async function bootstrap() {
     AppModule,
     new FastifyAdapter()
   );
-  app.enableCors(); // Allow React to talk to this
+  app.enableCors();
   await app.listen(5001, '0.0.0.0');
   console.log(`Server running on ${await app.getUrl()}`);
 }

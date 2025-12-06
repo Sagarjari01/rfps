@@ -12,7 +12,6 @@ export class AiService {
       throw new Error('GEMINI_API_KEY is not set');
     }
     const genAI = new GoogleGenerativeAI(apiKey);
-    // Try gemini-pro first (most stable), fallback to gemini-1.5-flash-latest if needed
     this.model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
   }
 
@@ -34,12 +33,10 @@ export class AiService {
       const response = await result.response;
       const text = response.text();
       
-      // Clean up if AI adds markdown backticks
       const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
       return JSON.parse(cleanJson);
     } catch (error) {
       console.error('AI Error:', error);
-      // Fallback if AI fails (prevents app crash)
       return { error: 'Failed to parse', original: userText };
     }
   }
@@ -68,18 +65,15 @@ export class AiService {
       const response = await result.response;
       const text = response.text();
       
-      // Clean up if AI adds markdown backticks
       const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
       return JSON.parse(cleanJson);
     } catch (error) {
       console.error('AI Error parsing vendor email:', error);
-      // Fallback if AI fails (prevents app crash)
       return { error: 'Failed to parse', original: emailText };
     }
   }
 
   async compareProposals(rfpRequest: string, proposals: any[]): Promise<any> {
-    // 1. Format proposals into a readable string for the AI
     const proposalsText = proposals
       .map(
         (p, index) =>
@@ -87,7 +81,6 @@ export class AiService {
       )
       .join('\n');
 
-    // FIX: Get today's date so AI knows the context
     const today = new Date().toDateString();
 
     const prompt = `
@@ -117,12 +110,10 @@ export class AiService {
       const response = await result.response;
       const text = response.text();
 
-      // Clean up if AI adds markdown backticks
       const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
       return JSON.parse(cleanJson);
     } catch (error) {
       console.error('AI Error comparing proposals:', error);
-      // Fallback if AI fails (prevents app crash)
       return {
         error: 'Failed to compare',
         recommendedVendor: proposals[0]?.vendorName || 'Unknown',

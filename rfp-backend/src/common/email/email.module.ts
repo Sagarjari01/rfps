@@ -2,7 +2,7 @@ import { Module, Global } from '@nestjs/common';
 import { EmailService } from './email.service';
 import { IEmailManagerToken } from './email.manager.interface';
 
-@Global() // Make it available everywhere
+@Global()
 @Module({
   providers: [
     {
