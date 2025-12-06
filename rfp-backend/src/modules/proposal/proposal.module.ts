@@ -13,6 +13,7 @@ import { AiModule } from '../../common/ai/ai.module';
   ],
   controllers: [ProposalController],
   providers: [ProposalRepository, ProposalService],
+  exports: [ProposalRepository],
 })
 export class ProposalModule {}
 

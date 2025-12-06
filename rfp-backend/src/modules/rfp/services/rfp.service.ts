@@ -5,12 +5,14 @@ import { Rfp } from '../schemas/rfp.schema';
 import { AiService } from '../../../common/ai/ai.service';
 import { IEmailManager, IEmailManagerToken } from '../../../common/email/email.manager.interface';
 import { VendorRepository } from '../../vendor/repositories/vendor.repository';
+import { ProposalRepository } from '../../proposal/repositories/proposal.repository';
 
 @Injectable()
 export class RfpService implements IRfpManager {
   constructor(
     private readonly rfpRepository: RfpRepository,
     private readonly vendorRepository: VendorRepository,
+    private readonly proposalRepository: ProposalRepository,
     private readonly aiService: AiService,
     @Inject(IEmailManagerToken) private readonly emailManager: IEmailManager,
   ) {}
@@ -69,6 +71,29 @@ export class RfpService implements IRfpManager {
     await rfp.save();
 
     return { message: 'Emails sent successfully', details: results };
+  }
+
+  async getComparison(rfpId: string): Promise<any> {
+    // 1. Get the original RFP (What we wanted)
+    const rfp = await this.rfpRepository.findOne({ _id: rfpId });
+    if (!rfp) throw new NotFoundException('RFP not found');
+
+    // 2. Get all proposals (What we got)
+    const proposals = await this.proposalRepository.findAllByRfpId(rfpId);
+
+    if (proposals.length === 0) {
+      return { message: 'No proposals received yet. Cannot compare.' };
+    }
+
+    // 3. Ask AI to judge
+    const aiVerdict = await this.aiService.compareProposals(rfp.userRequest, proposals);
+
+    // 4. Return everything combined
+    return {
+      rfpRequest: rfp.userRequest,
+      proposals: proposals,
+      aiRecommendation: aiVerdict,
+    };
   }
 }
 

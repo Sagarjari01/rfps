@@ -24,5 +24,10 @@ export class RfpController {
   ) {
     return this.rfpManager.sendToVendors(id, body.vendorIds);
   }
+
+  @Get(':id/comparison')
+  async compare(@Param('id') id: string) {
+    return (this.rfpManager as any).getComparison(id);
+  }
 }
 

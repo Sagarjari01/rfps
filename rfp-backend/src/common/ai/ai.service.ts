@@ -77,5 +77,60 @@ export class AiService {
       return { error: 'Failed to parse', original: emailText };
     }
   }
+
+  async compareProposals(rfpRequest: string, proposals: any[]): Promise<any> {
+    // 1. Format proposals into a readable string for the AI
+    const proposalsText = proposals
+      .map(
+        (p, index) =>
+          `Vendor ${index + 1} (${p.vendorName}): Price $${p.price}, Delivery ${p.deliveryDate}, Warranty ${p.warranty}`,
+      )
+      .join('\n');
+
+    // FIX: Get today's date so AI knows the context
+    const today = new Date().toDateString();
+
+    const prompt = `
+      I am a procurement manager.
+      
+      Context:
+      - Today's Date: ${today} (Use this to calculate relative dates like "next Friday")
+      - My Request: "${rfpRequest}"
+      
+      I received these proposals:
+      ${proposalsText}
+      
+      Task:
+      Compare them and recommend the best vendor.
+      
+      Output JSON only:
+      {
+        "recommendedVendor": "Name of vendor",
+        "reason": "Why they are the best (price, speed, or terms). Be specific about date differences.",
+        "score": 95,
+        "comparisonSummary": "Short comparison text"
+      }
+    `;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+
+      // Clean up if AI adds markdown backticks
+      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanJson);
+    } catch (error) {
+      console.error('AI Error comparing proposals:', error);
+      // Fallback if AI fails (prevents app crash)
+      return {
+        error: 'Failed to compare',
+        recommendedVendor: proposals[0]?.vendorName || 'Unknown',
+        reason: 'AI comparison failed, using first proposal',
+        score: 0,
+        comparisonSummary: 'Comparison unavailable',
+      };
+    }
+  }
 }
 
